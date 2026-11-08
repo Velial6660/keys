@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Личная страница</title>
+<style>
+/* Layout: одна карточка по центру, ключи списком, тихая бирюза как у сайта Пуси */
+:root {
+  --bg: #eef2f1; --card: #fbfcfc; --ink: #1d2729; --muted: #5a676a; --line: rgba(29,39,41,.12);
+  --accent: #0d776d; --accent-ink: #ffffff; --soft: #d7ebe7; --warn-bg: #fff3d6; --warn-ink: #6b4a00;
+  --code-bg: #f1f5f4;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111819; --card: #182224; --ink: #e6eeec; --muted: #9eadae; --line: rgba(230,238,236,.12);
+    --accent: #45b9a9; --accent-ink: #0d1a19; --soft: #1e3532; --warn-bg: #3a2f12; --warn-ink: #f3d68b;
+    --code-bg: #0f1617; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.55 var(--font);
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 1.5rem; line-height: 1.2; margin: 0; letter-spacing: -.01em; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: .92rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.status { background: var(--warn-bg); color: var(--warn-ink); border-radius: 12px; padding: 12px 16px; font-weight: 500; }
+.key { display: flex; flex-direction: column; gap: 10px; }
+.key + .key { border-top: 1px dashed var(--line); padding-top: 16px; }
+.key h2 { font-size: 1rem; margin: 0; }
+.token { font: 12px/1.45 var(--mono); background: var(--code-bg); border-radius: 10px; padding: 12px; word-break: break-all; user-select: all; -webkit-user-select: all; max-height: 7.5em; overflow: auto; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button { font: 600 .95rem var(--font); border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
+button.ghost { background: var(--soft); color: var(--ink); }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ok { color: var(--accent); font-weight: 600; font-size: .9rem; }
+.help { white-space: pre-line; }
+.help a, .card a { color: var(--accent); }
+footer { text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Личная страница</h1>
+  <p class="status" id="status" hidden></p>
+  <section class="card" id="state">
+    <p id="msg">Загружаю…</p>
+  </section>
+  <section class="card" id="keys" hidden></section>
+  <section class="card" id="helpCard" hidden>
+    <p class="help" id="help"></p>
+  </section>
+  <footer class="muted">
+    <p id="updated"></p>
+    <p>Ссылка личная. Не пересылайте её никому.</p>
+  </footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const say = (t) => { $('msg').textContent = t; $('state').hidden = false; };
+
+  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const b64url = s => {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return b64(s);
+  };
+  const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+
+  async function copy(text, btn, box) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+    if (!ok) {
+      const r = document.createRange(); r.selectNodeContents(box);
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      try { ok = document.execCommand('copy'); } catch (e) {}
+    }
+    const old = btn.textContent;
+    btn.textContent = ok ? 'Скопировано' : 'Выделено, скопируйте вручную';
+    setTimeout(() => { btn.textContent = old; }, 2000);
+  }
+
+  async function status() {
+    try {
+      const r = await fetch('status.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const s = await r.json();
+      if (s && s.text) { $('status').textContent = s.text; $('status').hidden = false; }
+    } catch (e) {}
+  }
+
+  async function load() {
+    const secret = location.hash.slice(1).trim();
+    if (!secret) { say('Откройте свою личную ссылку целиком, вместе с частью после знака #.'); return; }
+    let raw;
+    try { raw = b64url(secret); } catch (e) { raw = null; }
+    if (!raw || raw.length !== 32) { say('Ссылка повреждена. Скопируйте её ещё раз целиком.'); return; }
+    if (!window.crypto || !crypto.subtle) { say('Браузер не поддерживает расшифровку. Откройте ссылку в Safari или Chrome.'); return; }
+
+    const id = hex(await crypto.subtle.digest('SHA-256', raw)).slice(0, 24);
+    let file;
+    try {
+      const r = await fetch('d/' + id + '.json?t=' + Date.now(), { cache: 'no-store' });
+      if (r.status === 404) { say('По этой ссылке пока ничего нет. Если ссылку прислали только что, подождите пару минут и обновите страницу.'); return; }
+      if (!r.ok) throw new Error(r.status);
+      file = await r.json();
+    } catch (e) { say('Не удалось загрузить данные. Проверьте интернет и обновите страницу.'); return; }
+
+    let data;
+    try {
+      const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(file.iv) }, key, b64(file.ct));
+      data = JSON.parse(new TextDecoder().decode(plain));
+    } catch (e) { say('Не удалось открыть данные. Возможно, ссылка устарела. Попросите новую.'); return; }
+
+    $('state').hidden = true;
+    const box = $('keys'); box.innerHTML = ''; box.hidden = false;
+    (data.keys || []).forEach((k, i) => {
+      const wrap = document.createElement('div'); wrap.className = 'key';
+      const h = document.createElement('h2'); h.textContent = k.label ? `${k.label} (${k.name})` : k.name;
+      const t = document.createElement('div'); t.className = 'token'; t.id = 'token-' + i; t.textContent = k.token;
+      const row = document.createElement('div'); row.className = 'row';
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Скопировать';
+      b.addEventListener('click', () => copy(k.token, b, t));
+      row.append(b); wrap.append(h, t, row); box.append(wrap);
+    });
+    if (data.help) { $('help').textContent = data.help + (data.support ? '\n\nВопросы: ' + data.support : ''); $('helpCard').hidden = false; }
+    if (file.u) {
+      const d = new Date(file.u);
+      if (!isNaN(d)) $('updated').textContent = 'Обновлено ' + d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  status();
+  load();
+  addEventListener('hashchange', load);
+})();
+</script>
+</body>
+</html>
