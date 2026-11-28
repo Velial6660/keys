@@ -27,21 +27,37 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.55 
   padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 main { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 h1 { font-size: 1.5rem; line-height: 1.2; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 1.1rem; margin: 0; }
 p { margin: 0; }
 .muted { color: var(--muted); font-size: .92rem; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
 .status { background: var(--warn-bg); color: var(--warn-ink); border-radius: 12px; padding: 12px 16px; font-weight: 500; }
+#current-keys { display: grid; gap: 12px; }
 .key { display: flex; flex-direction: column; gap: 10px; }
-.key + .key { border-top: 1px dashed var(--line); padding-top: 16px; }
-.key h2 { font-size: 1rem; margin: 0; }
+.key + .key { border-top: 1px solid var(--line); padding-top: 12px; }
+.key h3 { font-size: 1rem; margin: 0; }
 .token { font: 12px/1.45 var(--mono); background: var(--code-bg); border-radius: 10px; padding: 12px; word-break: break-all; user-select: all; -webkit-user-select: all; max-height: 7.5em; overflow: auto; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 button { font: 600 .95rem var(--font); border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer; background: var(--accent); color: var(--accent-ink); }
-button.ghost { background: var(--soft); color: var(--ink); }
-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.ok { color: var(--accent); font-weight: 600; font-size: .9rem; }
-.help { white-space: pre-line; }
-.help a, .card a { color: var(--accent); }
+:is(button, a, summary):focus-visible,
+.platforms input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.card a, footer a { color: var(--accent); }
+.platforms { border: 0; padding: 0; margin: 0; min-width: 0; }
+.platforms legend { font-size: .92rem; font-weight: 600; margin: 0 0 8px; padding: 0; }
+.platforms label { position: relative; cursor: pointer; }
+.platforms input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.platforms span { display: block; padding: 7px 12px; border: 1px solid var(--line); border-radius: 9px; }
+.platforms input:checked + span { background: var(--soft); border-color: var(--accent); font-weight: 600; }
+.steps { margin: 0; padding-inline-start: 24px; display: grid; gap: 8px; }
+.steps li { padding-inline-start: 3px; }
+.steps ::marker { color: var(--accent); font-weight: 600; }
+summary { cursor: pointer; width: fit-content; }
+.token-details { min-width: 0; max-width: 100%; }
+.token-details[open] { flex-basis: 100%; }
+.token-details summary { color: var(--muted); font-size: .92rem; }
+.token-details[open] .token, .older-keys[open] > div { margin-top: 10px; }
+.older-keys { border-top: 1px solid var(--line); padding-top: 12px; }
+.older-keys > div { display: grid; gap: 12px; }
 footer { text-align: center; }
 </style>
 </head>
@@ -52,13 +68,35 @@ footer { text-align: center; }
   <section class="card" id="state">
     <p id="msg">Загружаю…</p>
   </section>
-  <section class="card" id="keys" hidden></section>
+  <section class="card" id="setup" aria-labelledby="setup-title" hidden>
+    <h2 id="setup-title">Первое подключение</h2>
+    <fieldset class="platforms">
+      <legend>На каком устройстве подключаете VPN?</legend>
+      <div class="row">
+        <label><input type="radio" name="platform" value="windows" checked><span>Windows</span></label>
+        <label><input type="radio" name="platform" value="ios"><span>iPhone / iPad</span></label>
+        <label><input type="radio" name="platform" value="android"><span>Android</span></label>
+        <label><input type="radio" name="platform" value="desktop"><span>macOS / Linux</span></label>
+      </div>
+    </fieldset>
+    <ol class="steps" id="steps" aria-live="polite"></ol>
+  </section>
+  <section class="card" id="keys" aria-labelledby="keys-title" hidden>
+    <h2 id="keys-title">Ваши ключи</h2>
+    <p class="muted">Бот выдаёт ключ после подтверждения оплаты. В Telegram он всегда доступен по кнопке «Мой ключ».</p>
+    <div id="current-keys"></div>
+    <details class="older-keys" id="older-keys" hidden>
+      <summary>Прежние ключи</summary>
+      <div id="previous-keys"></div>
+    </details>
+  </section>
   <section class="card" id="helpCard" hidden>
-    <p class="help" id="help"></p>
+    <h2>Если не подключается</h2>
+    <p class="muted">Откройте <a href="https://t.me/MyPayAmnezia_bot" target="_blank" rel="noopener noreferrer">бота в Telegram</a> и нажмите «Не подключается». Укажите устройство, сервер и что пошло не так.</p>
   </section>
   <footer class="muted">
     <p id="updated"></p>
-    <p>Ссылка личная. Не пересылайте её никому.</p>
+    <p>Храните личную ссылку и ключи у себя.</p>
   </footer>
 </main>
 <script>
@@ -74,17 +112,67 @@ footer { text-align: center; }
   };
   const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 
-  async function copy(text, btn, box) {
+  const guides = {
+    windows: [
+      ['Скачайте ', ['FPTN для Windows 10/11', 'https://github.com/fptn-project/fptn/releases/latest'], '. Выберите установщик .exe, установите и запустите программу.'],
+      ['Нажмите «Скопировать ключ» ниже.'],
+      ['Откройте значок FPTN рядом с часами. В настройках выберите «Добавить токен» (Add Token), вставьте ключ и сохраните. Для подключения выберите «Умное подключение» (Smart Connection) в меню значка.'],
+    ],
+    ios: [
+      ['Установите ', ['TestFlight', 'https://apps.apple.com/app/testflight/id899247664'], ', затем откройте ', ['приглашение FptnVPN', 'https://testflight.apple.com/join/DyMr2vNj'], ' и установите FptnVPN.'],
+      ['Нажмите «Скопировать ключ» ниже.'],
+      ['В FptnVPN добавьте токен, вставьте ключ и сохраните. Нажмите кнопку подключения и разрешите приложению добавить конфигурацию VPN, если iPhone попросит.'],
+    ],
+    android: [
+      ['Установите FPTN VPN из ', ['Google Play', 'https://play.google.com/store/apps/details?id=org.fptn.vpn'], '. Если магазин недоступен, загрузка есть на ', ['официальном GitHub', 'https://github.com/fptn-project/FptnClient-Android/releases/latest'], '.'],
+      ['Нажмите «Скопировать ключ» ниже.'],
+      ['В FPTN VPN выберите «Добавить токен» (Add Token), вставьте ключ и сохраните. Нажмите кнопку подключения и подтвердите системный запрос VPN.'],
+    ],
+    desktop: [
+      ['Откройте ', ['официальный сайт FPTN', 'https://fptn.org/index.html'], ' и выберите сборку для macOS или Linux.'],
+      ['Нажмите «Скопировать ключ» ниже.'],
+      ['В настройках FPTN добавьте токен, вставьте ключ и сохраните. В меню значка FPTN выберите «Умное подключение» (Smart Connection).'],
+    ],
+  };
+
+  function renderSteps(platform) {
+    $('steps').replaceChildren(...guides[platform].map(step => {
+      const item = document.createElement('li');
+      for (const part of step) {
+        if (typeof part === 'string') {
+          item.append(part);
+        } else {
+          const link = document.createElement('a');
+          [link.textContent, link.href] = part;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          item.append(link);
+        }
+      }
+      return item;
+    }));
+  }
+
+  function platformForDevice() {
+    const agent = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(agent) || (/Macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/Android/i.test(agent)) return 'android';
+    if (/Macintosh|Linux/i.test(agent)) return 'desktop';
+    return 'windows';
+  }
+
+  async function copy(text, btn, box, details) {
     let ok = false;
     try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
     if (!ok) {
+      details.open = true;
       const r = document.createRange(); r.selectNodeContents(box);
       const s = getSelection(); s.removeAllRanges(); s.addRange(r);
       try { ok = document.execCommand('copy'); } catch (e) {}
     }
-    const old = btn.textContent;
+    clearTimeout(btn.copyTimer);
     btn.textContent = ok ? 'Скопировано' : 'Выделено, скопируйте вручную';
-    setTimeout(() => { btn.textContent = old; }, 2000);
+    btn.copyTimer = setTimeout(() => { btn.textContent = 'Скопировать ключ'; }, 2000);
   }
 
   async function status() {
@@ -96,7 +184,19 @@ footer { text-align: center; }
     } catch (e) {}
   }
 
+  let pendingLoad;
   async function load() {
+    pendingLoad?.abort();
+    const request = new AbortController();
+    pendingLoad = request;
+    const { signal } = request;
+    $('setup').hidden = $('keys').hidden = $('helpCard').hidden = true;
+    $('current-keys').replaceChildren();
+    $('previous-keys').replaceChildren();
+    $('older-keys').hidden = true;
+    $('older-keys').open = false;
+    $('updated').textContent = '';
+    say('Загружаю…');
     const secret = location.hash.slice(1).trim();
     if (!secret) { say('Откройте свою личную ссылку целиком, вместе с частью после знака #.'); return; }
     let raw;
@@ -107,37 +207,49 @@ footer { text-align: center; }
     const id = hex(await crypto.subtle.digest('SHA-256', raw)).slice(0, 24);
     let file;
     try {
-      const r = await fetch('d/' + id + '.json?t=' + Date.now(), { cache: 'no-store' });
+      const r = await fetch('d/' + id + '.json?t=' + Date.now(), { cache: 'no-store', signal });
+      if (signal.aborted) return;
       if (r.status === 404) { say('По этой ссылке пока ничего нет. Если ссылку прислали только что, подождите пару минут и обновите страницу.'); return; }
       if (!r.ok) throw new Error(r.status);
       file = await r.json();
-    } catch (e) { say('Не удалось загрузить данные. Проверьте интернет и обновите страницу.'); return; }
+    } catch (e) { if (!signal.aborted) say('Не удалось загрузить данные. Проверьте интернет и обновите страницу.'); return; }
 
     let data;
     try {
       const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
       const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(file.iv) }, key, b64(file.ct));
       data = JSON.parse(new TextDecoder().decode(plain));
-    } catch (e) { say('Не удалось открыть данные. Возможно, ссылка устарела. Попросите новую.'); return; }
+    } catch (e) { if (!signal.aborted) say('Не удалось открыть данные. Возможно, ссылка устарела. Попросите новую.'); return; }
 
+    if (signal.aborted) return;
+    if (!data.keys?.length) { say('На странице пока нет ключей. Проверьте раздел «Мой ключ» в боте.'); return; }
     $('state').hidden = true;
-    const box = $('keys'); box.innerHTML = ''; box.hidden = false;
-    (data.keys || []).forEach((k, i) => {
+    $('setup').hidden = $('keys').hidden = $('helpCard').hidden = false;
+    data.keys.forEach(k => {
       const wrap = document.createElement('div'); wrap.className = 'key';
-      const h = document.createElement('h2'); h.textContent = k.label ? `${k.label} (${k.name})` : k.name;
-      const t = document.createElement('div'); t.className = 'token'; t.id = 'token-' + i; t.textContent = k.token;
+      const h = document.createElement('h3'); h.textContent = k.label ? `${k.label} (${k.name})` : k.name;
+      const details = document.createElement('details'); details.className = 'token-details';
+      const summary = document.createElement('summary'); summary.textContent = 'Показать ключ';
+      const t = document.createElement('div'); t.className = 'token'; t.textContent = k.token;
+      details.append(summary, t);
       const row = document.createElement('div'); row.className = 'row';
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Скопировать';
-      b.addEventListener('click', () => copy(k.token, b, t));
-      row.append(b); wrap.append(h, t, row); box.append(wrap);
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Скопировать ключ';
+      b.addEventListener('click', () => copy(k.token, b, t, details));
+      row.append(b, details); wrap.append(h, row);
+      const older = (k.label || '').endsWith(' · прежний ключ');
+      $(older ? 'previous-keys' : 'current-keys').append(wrap);
+      if (older) $('older-keys').hidden = false;
     });
-    if (data.help) { $('help').textContent = data.help + (data.support ? '\n\nВопросы: ' + data.support : ''); $('helpCard').hidden = false; }
     if (file.u) {
       const d = new Date(file.u);
       if (!isNaN(d)) $('updated').textContent = 'Обновлено ' + d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
   }
 
+  const initialPlatform = platformForDevice();
+  document.querySelector(`input[value="${initialPlatform}"]`).checked = true;
+  renderSteps(initialPlatform);
+  document.querySelector('.platforms').addEventListener('change', event => renderSteps(event.target.value));
   status();
   load();
   addEventListener('hashchange', load);
